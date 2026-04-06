@@ -109,9 +109,9 @@ Use LangChain DeepAgent with a LiteLLM-backed model connection.
 
 Configuration is provided through environment variables, including:
 
-- LiteLLM base URL
-- LiteLLM API key
-- model name
+- `LITELLM_BASE_URL`
+- `LITELLM_API_KEY`
+- `LITELLM_MODEL`
 
 ## Session model
 
@@ -125,6 +125,14 @@ The backend stores one in-memory session object with at least these fields:
 - `conversation_summary`
 - `ai_reply_task`
 - `last_error`
+
+`agent_status` is the single internal workflow-status field for the session.
+Allowed values are:
+
+- `normal`
+- `needs_followup`
+- `escalated_backoffice`
+- `waiting_human`
 
 ### Ownership states
 
@@ -146,16 +154,7 @@ State transitions:
 
 While in `ai_paused`, new customer messages are still appended and shown to both pages, but they do not trigger automatic AI replies.
 
-### Supporting internal states
-
-Track internal workflow states such as:
-
-- `normal`
-- `needs_followup`
-- `escalated_backoffice`
-- `waiting_human`
-
-These states are internal only. They may affect operator UI and backend behavior, but they must not be shown to the customer as implementation details.
+These values are internal only. They may affect operator UI and backend behavior, but they must not be shown to the customer as implementation details.
 
 ## API design
 
@@ -187,6 +186,49 @@ Agent may send:
 - `takeover`
 - `release_to_ai`
 - `resume_ai`
+
+Minimal client event shapes:
+
+```json
+{
+  "type": "user_message",
+  "payload": {
+    "text": "I still have not received my refund"
+  }
+}
+```
+
+```json
+{
+  "type": "agent_message",
+  "payload": {
+    "text": "I am checking that order for you now"
+  }
+}
+```
+
+```json
+{
+  "type": "takeover",
+  "payload": {
+    "reason": "manual_takeover"
+  }
+}
+```
+
+```json
+{
+  "type": "release_to_ai",
+  "payload": {}
+}
+```
+
+```json
+{
+  "type": "resume_ai",
+  "payload": {}
+}
+```
 
 ### Server-to-client events
 
@@ -247,6 +289,13 @@ Minimal `Event` shape:
 }
 ```
 
+Message rendering rule:
+
+- Transcript items that should appear in chat history are delivered as `message_created` with a `Message` payload and `visible_in_transcript=true`
+- Non-transcript state changes such as typing, ownership changes, and internal notices are delivered as non-message events
+- Customer-safe holding text such as "I am checking this for you now" is delivered as a transcript message
+- Internal operator-only alerts use `system_notice` or `error_notice` with `audience=agent` and do not appear in the customer transcript
+
 `session_snapshot` payload must include:
 
 - full message list in canonical order
@@ -277,6 +326,8 @@ Minimal `Event` shape:
 4. Backend broadcasts `ownership_changed`
 5. Customer messages continue to appear in the thread, but do not trigger AI replies
 6. Human replies are broadcast as normal messages
+
+If an AI task finishes after takeover, its output is appended only if the session owner is still `ai_active` at completion time. Otherwise the result is discarded.
 
 ### Return to AI
 
@@ -325,6 +376,8 @@ The summary should capture:
 - whether follow-up or internal escalation is already in progress
 
 This allows the next reply to continue the thread naturally rather than sounding like a reset.
+
+`conversation_summary` is updated after each completed assistant or human-agent reply, and may also be refreshed after a frustrated customer turn when sentiment or issue state changes in a way that matters for the next response.
 
 ### Upset-customer handling
 
@@ -393,6 +446,8 @@ If the LiteLLM call fails, times out, or returns unusable output:
 - set an internal follow-up state
 - send a support-style holding reply if appropriate
 - allow the human operator to continue the thread naturally from the workstation
+
+The holding reply is appended as a normal transcript message with a customer-safe tone. Raw model or proxy failure details are never sent to the customer page.
 
 ## Frontend details
 
