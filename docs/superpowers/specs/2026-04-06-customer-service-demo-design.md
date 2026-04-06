@@ -86,7 +86,7 @@ Create two routes or entry pages:
 
 Each page:
 
-- Loads the current session snapshot through HTTP on first render
+- Loads its audience-filtered session snapshot through HTTP on first render
 - Connects to the backend through WebSocket
 - Renders the same canonical event stream from the backend
 
@@ -163,8 +163,11 @@ These values are internal only. They may affect operator UI and backend behavior
 - `GET /api/health`
   Returns a simple health response.
 
-- `GET /api/session`
-  Returns the current session snapshot, including message history, owner, and internal flags needed by the frontend.
+- `GET /api/session/customer`
+  Returns the customer-safe session snapshot. This payload must exclude operator-only fields, internal workflow flags, last-error details, and agent-only transcript items.
+
+- `GET /api/session/agent`
+  Returns the operator session snapshot, including internal workflow flags and other operator-only fields.
 
 ### WebSocket endpoints
 
@@ -232,7 +235,7 @@ Minimal client event shapes:
 
 ### Server-to-client events
 
-Broadcast standard events to both pages:
+Broadcast standard events across the session:
 
 - `session_snapshot`
 - `message_created`
@@ -242,6 +245,7 @@ Broadcast standard events to both pages:
 - `error_notice`
 
 The frontend should treat the backend event stream as the single source of truth.
+Here, "broadcast" means "deliver only to connected sockets whose audience matches the event audience". The backend must never send `agent`-audience payloads to a customer socket.
 
 ### Visibility rules
 
@@ -259,6 +263,7 @@ Rules:
 - Technical failure details are never `customer`
 
 The frontend must render only events matching its audience.
+The backend must enforce this rule before transmission, not just in frontend rendering.
 
 ### Canonical payloads
 
@@ -295,15 +300,22 @@ Message rendering rule:
 - Non-transcript state changes such as typing, ownership changes, and internal notices are delivered as non-message events
 - Customer-safe holding text such as "I am checking this for you now" is delivered as a transcript message
 - Internal operator-only alerts use `system_notice` or `error_notice` with `audience=agent` and do not appear in the customer transcript
+- `Event.audience` is the authoritative delivery rule. For `message_created`, `payload.audience` must match the enclosing event audience.
 
 `session_snapshot` payload must include:
 
 - full message list in canonical order
 - current owner
-- current internal status flags
 - current AI typing state
 
-`GET /api/session` and `session_snapshot` use the same data contract. HTTP is used for initial bootstrapping, while the latest WebSocket `session_snapshot` becomes authoritative after a connection is established or re-established.
+Agent snapshots also include:
+
+- current internal status flags
+- `last_error`
+
+Customer snapshots must exclude those operator-only fields.
+
+`GET /api/session/customer`, `GET /api/session/agent`, and `session_snapshot` share the same base data contract, but the backend filters fields by audience before sending them. HTTP is used for initial bootstrapping, while the latest WebSocket `session_snapshot` becomes authoritative after a connection is established or re-established.
 
 ## Message flow
 
@@ -317,6 +329,8 @@ Message rendering rule:
 6. AI returns a support-style reply
 7. Backend appends the AI reply
 8. Backend broadcasts the reply as `message_created`
+
+If another customer message arrives while `ai_reply_task` is still running and the owner remains `ai_active`, the backend cancels the in-flight task and starts a fresh reply generation from the newest conversation state. For this demo, the rule is cancel-and-regenerate, not queueing multiple AI replies.
 
 ### Human takeover
 
