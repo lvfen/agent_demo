@@ -210,6 +210,8 @@ Minimal client event shapes:
 }
 ```
 
+`agent_message` is accepted only when `owner=human_active`. If the operator tries to send it while AI still owns the session, the backend rejects it and returns an `error_notice` to the agent page. The operator must take over first.
+
 ```json
 {
   "type": "takeover",
@@ -291,6 +293,55 @@ Minimal `Event` shape:
   "audience": "customer|agent|both",
   "created_at": "2026-04-06T16:30:00Z",
   "payload": {}
+}
+```
+
+Concrete event payloads:
+
+```json
+{
+  "type": "ownership_changed",
+  "audience": "both",
+  "created_at": "2026-04-06T16:30:00Z",
+  "payload": {
+    "owner": "human_active",
+    "reason": "manual_takeover"
+  }
+}
+```
+
+```json
+{
+  "type": "ai_typing",
+  "audience": "both",
+  "created_at": "2026-04-06T16:30:00Z",
+  "payload": {
+    "active": true
+  }
+}
+```
+
+```json
+{
+  "type": "system_notice",
+  "audience": "agent",
+  "created_at": "2026-04-06T16:30:00Z",
+  "payload": {
+    "code": "FOLLOWUP_REQUIRED",
+    "message": "Case marked for internal follow-up"
+  }
+}
+```
+
+```json
+{
+  "type": "error_notice",
+  "audience": "agent",
+  "created_at": "2026-04-06T16:30:00Z",
+  "payload": {
+    "code": "AGENT_MESSAGE_REJECTED",
+    "message": "Take over the conversation before sending a human reply"
+  }
 }
 ```
 
@@ -479,6 +530,7 @@ Behavior:
 - show incoming replies in real time
 - show neutral support-status messaging
 - keep visual language consistent whether the backend owner is AI or human
+- map both AI and human-agent transcript messages to the same customer-facing support identity, display name, and avatar
 
 ### Agent page
 
@@ -495,6 +547,15 @@ Behavior:
 - let the operator take over or return control
 - show internal state markers such as follow-up needed
 - never rely on local guesses; only reflect backend events
+
+## Local run assumptions
+
+The first implementation plan should assume:
+
+- frontend dev server on Vite default port `5173`
+- backend dev server on FastAPI default port `8000`
+- frontend reads backend base URL from a Vite environment variable
+- backend reads `LITELLM_BASE_URL`, `LITELLM_API_KEY`, and `LITELLM_MODEL` from environment variables
 
 ## Error handling
 
