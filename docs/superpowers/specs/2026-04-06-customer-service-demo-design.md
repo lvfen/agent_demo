@@ -136,6 +136,16 @@ Use these ownership states:
 
 Default state is `ai_active`.
 
+State transitions:
+
+- `ai_active` -> `human_active` when the operator sends `takeover`
+- `human_active` -> `ai_active` when the operator sends `release_to_ai`
+- `ai_active` -> `ai_paused` when the backend marks the case as follow-up only, restricted, or model-unavailable
+- `ai_paused` -> `human_active` when the operator sends `takeover`
+- `ai_paused` -> `ai_active` when the operator sends `resume_ai`
+
+While in `ai_paused`, new customer messages are still appended and shown to both pages, but they do not trigger automatic AI replies.
+
 ### Supporting internal states
 
 Track internal workflow states such as:
@@ -176,6 +186,7 @@ Agent may send:
 - `agent_message`
 - `takeover`
 - `release_to_ai`
+- `resume_ai`
 
 ### Server-to-client events
 
@@ -189,6 +200,61 @@ Broadcast standard events to both pages:
 - `error_notice`
 
 The frontend should treat the backend event stream as the single source of truth.
+
+### Visibility rules
+
+Every server event must include an explicit audience field:
+
+- `customer`
+- `agent`
+- `both`
+
+Rules:
+
+- Internal follow-up, escalation flags, last-error details, and operator workflow notices are `agent` only
+- Customer-visible thread messages are `both`
+- Neutral support-status notices that preserve the single support identity may be `both`
+- Technical failure details are never `customer`
+
+The frontend must render only events matching its audience.
+
+### Canonical payloads
+
+Minimal `Message` shape:
+
+```json
+{
+  "id": "msg_001",
+  "role": "user|assistant|agent|system",
+  "text": "string",
+  "created_at": "2026-04-06T16:30:00Z",
+  "audience": "customer|agent|both",
+  "visible_in_transcript": true,
+  "metadata": {
+    "status_tag": "optional"
+  }
+}
+```
+
+Minimal `Event` shape:
+
+```json
+{
+  "type": "message_created|ownership_changed|ai_typing|system_notice|error_notice|session_snapshot",
+  "audience": "customer|agent|both",
+  "created_at": "2026-04-06T16:30:00Z",
+  "payload": {}
+}
+```
+
+`session_snapshot` payload must include:
+
+- full message list in canonical order
+- current owner
+- current internal status flags
+- current AI typing state
+
+`GET /api/session` and `session_snapshot` use the same data contract. HTTP is used for initial bootstrapping, while the latest WebSocket `session_snapshot` becomes authoritative after a connection is established or re-established.
 
 ## Message flow
 
@@ -218,6 +284,15 @@ The frontend should treat the backend event stream as the single source of truth
 2. Backend changes owner to `ai_active`
 3. Backend broadcasts `ownership_changed`
 4. Future customer messages trigger AI replies again
+
+### AI paused flow
+
+1. Backend detects a restricted request, follow-up-only state, or model failure
+2. Backend changes owner to `ai_paused`
+3. Backend emits an internal status event to the agent page
+4. Backend may emit a customer-safe holding notice that keeps the same support identity
+5. Customer messages continue to append to history but do not trigger AI
+6. The operator may take over, or later send `resume_ai` to restore `ai_active`
 
 ## AI support-agent behavior
 
