@@ -49,6 +49,12 @@ class Event(BaseModel):
     payload: dict[str, Any]
 
 
+class FollowupDecision(BaseModel):
+    requires_followup: bool
+    agent_status: AgentStatus = "normal"
+    holding_message: str | None = None
+
+
 class SessionState(BaseModel):
     session_id: str = "default"
     messages: list[Message] = Field(default_factory=list)
@@ -59,4 +65,3 @@ class SessionState(BaseModel):
     ai_reply_task: Any = None
     ai_typing: bool = False
     last_error: str | None = None
-

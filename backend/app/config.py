@@ -9,3 +9,6 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "customer-service-demo-backend"
+    litellm_base_url: str = "http://localhost:4000"
+    litellm_api_key: str = "test-key"
+    litellm_model: str = "gpt-4o-mini"
