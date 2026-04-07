@@ -40,6 +40,12 @@ Copy `.env.example` to `.env` at the repository root or export the variables in 
 - `VITE_API_BASE_URL`
 - `VITE_WS_BASE_URL`
 
+If your LiteLLM route is specifically exposing Gemini, the backend also accepts:
+
+- `GEMINI_BASE_URL`
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL`
+
 ## Demo flow
 
 1. Start backend and frontend.
